@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -41,14 +41,18 @@ jobs:
       - name: Compilation du site statique
         run: pnpm run build
 
-      - name: Configuration GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: Déploiement sur la branche gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
 
       - name: Téléversement de l'artefact GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
-      - name: Déploiement sur GitHub Pages
+      - name: Déploiement direct GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
