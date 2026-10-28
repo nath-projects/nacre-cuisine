@@ -1,0 +1,15 @@
+import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+export const profiles=sqliteTable('profiles',{id:text('id').primaryKey(),name:text('name').notNull(),color:text('color').notNull()});
+export const recipes=sqliteTable('recipes',{id:text('id').primaryKey(),owner:text('owner').notNull(),data:text('data').notNull(),created:integer('created').notNull()});
+export const books=sqliteTable('books',{id:text('id').primaryKey(),owner:text('owner').notNull(),name:text('name').notNull(),color:text('color').notNull(),created:integer('created').notNull()});
+export const entries=sqliteTable('entries',{bookId:text('book_id').notNull(),recipeId:text('recipe_id').notNull()},t=>[primaryKey({columns:[t.bookId,t.recipeId]})]);
+export const notes=sqliteTable('notes',{owner:text('owner').notNull(),recipeId:text('recipe_id').notNull(),text:text('text').notNull(),cooked:integer('cooked').notNull().default(0)},t=>[primaryKey({columns:[t.owner,t.recipeId]})]);
+export const reports=sqliteTable('reports',{id:text('id').primaryKey(),owner:text('owner').notNull(),recipeId:text('recipe_id').notNull(),reason:text('reason').notNull(),created:integer('created').notNull()});
+export const usage=sqliteTable('usage',{id:text('id').primaryKey(),count:integer('count').notNull()});
+export const accounts=sqliteTable('accounts',{id:text('id').primaryKey(),username:text('username').notNull().unique(),authVersion:integer('auth_version').notNull().default(0),passwordHash:text('password_hash').notNull(),recoveryHash:text('recovery_hash').notNull(),created:integer('created').notNull()});
+export const sessions=sqliteTable('sessions',{tokenHash:text('token_hash').primaryKey(),accountId:text('account_id').notNull(),authVersion:integer('auth_version').notNull().default(0),expires:integer('expires').notNull(),created:integer('created').notNull()});
+export const authLimits=sqliteTable('auth_limits',{id:text('id').primaryKey(),count:integer('count').notNull(),expires:integer('expires').notNull()});
+export const families=sqliteTable('families',{id:text('id').primaryKey(),name:text('name').notNull(),owner:text('owner').notNull(),created:integer('created').notNull()});
+export const familyMembers=sqliteTable('family_members',{userId:text('user_id').primaryKey(),familyId:text('family_id').notNull(),joined:integer('joined').notNull()});
+export const familyInvites=sqliteTable('family_invites',{id:text('id').primaryKey(),familyId:text('family_id').notNull(),codeHash:text('code_hash').notNull().unique(),targetId:text('target_id'),created:integer('created').notNull(),expires:integer('expires').notNull(),usedBy:text('used_by')});
+export const familyRecipes=sqliteTable('family_recipes',{familyId:text('family_id').notNull(),recipeId:text('recipe_id').notNull(),addedBy:text('added_by').notNull(),created:integer('created').notNull()},t=>[primaryKey({columns:[t.familyId,t.recipeId]})]);

@@ -1,0 +1,73 @@
+// Real authentication/family handlers and cryptography, isolated SQLite fixture.
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
+import ts from 'typescript';
+const require=createRequire(import.meta.url),dir=resolve('.sites-runtime/account-tests');await mkdir(dir,{recursive:true});
+const sql=new DatabaseSync(':memory:');for(const file of (await readdir('drizzle')).filter(x=>x.endsWith('.sql')).sort())sql.exec(await readFile('drizzle/'+file,'utf8'));
+class Statement{constructor(query,args=[]){this.query=query;this.args=args}bind(...args){return new Statement(this.query,args)}async first(){return sql.prepare(this.query).get(...this.args)||null}async all(){return {results:sql.prepare(this.query).all(...this.args)}}async run(){if(/RETURNING/i.test(this.query))return {results:sql.prepare(this.query).all(...this.args)};const r=sql.prepare(this.query).run(...this.args);return {results:[],meta:{changes:r.changes}}}}
+let queue=Promise.resolve();const db={prepare:q=>new Statement(q),batch:list=>{const work=queue.then(async()=>{sql.exec('BEGIN');try{const result=[];for(const s of list)result.push(await s.run());sql.exec('COMMIT');return result}catch(e){sql.exec('ROLLBACK');throw e}});queue=work.catch(()=>{});return work}};
+globalThis.__nacreAuth={DB:db};
+async function compile(from,to){let s=await readFile(from,'utf8');s=s.replace("import {env} from 'cloudflare:workers';","const env=globalThis.__nacreAuth;").replace("import {legacyIdentity} from '@/lib/legacy-identity';","const legacyIdentity=async()=>null;").replaceAll("from '@/lib/", "from './").replace(/from '\.\/(http|session|recipe|seeds)'/g,"from './$1.mjs'").replace("from 'zod'","from '"+pathToFileURL(require.resolve('zod')).href+"'");await writeFile(resolve(dir,to),ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
+for(const f of ['http','session','recipe','seeds'])await compile('lib/'+f+'.ts',f+'.mjs');for(const f of ['account','family','nacre'])await compile('app/api/'+f+'/route.ts',f+'.mjs');
+const routes={};for(const f of ['account','family','nacre'])routes[f]=await import(pathToFileURL(resolve(dir,f+'.mjs')).href);
+let count=0;function check(value,label){assert.ok(value,label);count++;console.log('PASS',label)}
+async function call(route,body=null,cookie='',ip='127.0.0.1',origin='https://nacre.test'){const req=new Request('https://nacre.test/api/'+route,{method:body?'POST':'GET',headers:{origin,'content-type':'application/json','cookie':cookie,'cf-connecting-ip':ip},...(body?{body:JSON.stringify(body)}:{})});const res=await routes[route][body?'POST':'GET'](req);return {status:res.status,data:await res.json(),cookie:res.headers.get('set-cookie')||''}}
+const pwd='A real long test phrase 9!';
+const register=async(username,ip)=>{const r=await call('account',{action:'register',username,name:username,password:pwd},'',ip);assert.equal(r.status,201);return {...r,username,cookie:r.cookie.split(';')[0],id:(await call('account',null,r.cookie.split(';')[0])).data.account.id}};
+check((await call('account',{action:'register',username:'weak',name:'Weak',password:'short'})).status===400,'weak passwords rejected');
+check((await call('account',{action:'login',username:'alice',password:pwd},'','1','https://evil.test')).status===403,'cross-site authentication rejected');
+const a=await register('alice','1'),b=await register('bob','2'),c=await register('charlie','3');
+check(a.cookie.includes('__Host-nacre_session'),'secure host-only session issued');
+const login=await call('account',{action:'login',username:'ALICE',password:pwd},'','4');
+check(login.status===200&&/HttpOnly/.test(login.cookie)&&/Secure/.test(login.cookie)&&/SameSite=Lax/.test(login.cookie),'case-insensitive login and protected cookie');
+check((await call('account',{action:'register',username:'Alice',name:'Other',password:pwd},'','5')).status===409,'normalized username uniqueness');
+const stored=sql.prepare('SELECT * FROM accounts WHERE id=?').get(a.id);
+check(stored.password_hash.startsWith('scrypt-v1$')&&!JSON.stringify(stored).includes(pwd)&&!JSON.stringify(stored).includes(a.data.recoveryCode),'passwords and recovery tokens not stored in plaintext');
+check((await call('account',{action:'login',username:'alice',password:'incorrect'},'','6')).status===401,'wrong password rejected');
+check((await call('account',{action:'login',username:'nobody',password:'incorrect'},'','7')).status===401,'unknown user receives same authentication error');
+check((await call('account',null,'__Host-nacre_session='+('a'.repeat(43)))).data.account===null,'forged session rejected');
+check((await call('nacre',null,a.cookie)).data.user.username==='alice','recipe API uses Nacre account session');
+let r=await call('family',{action:'create',name:'La table des tests'},a.cookie);check(r.status===201,'family can be created');const fid=r.data.id;
+check((await call('family',null,b.cookie)).data.family===null,'unrelated account cannot view family');
+check((await call('family',{action:'invite',username:'charlie'},b.cookie)).status===404,'outsider cannot invite');
+r=await call('family',{action:'invite',username:'bob'},a.cookie);const invite=r.data;
+check(r.status===201&&(await call('family',null,b.cookie)).data.pending[0].id===invite.id,'targeted invitation reaches recipient');
+check((await call('family',{action:'join',code:invite.code},c.cookie)).status===404,'targeted code cannot be used by another account');
+check((await call('family',{action:'accept',inviteId:invite.id},b.cookie)).status===200,'recipient can accept invitation');
+check((await call('family',null,b.cookie)).data.family.members.length===2,'accepted member sees family');
+check((await call('family',{action:'invite'},b.cookie)).status===403,'member cannot create invitations');
+check((await call('family',{action:'remove',userId:a.id},b.cookie)).status===403,'member cannot remove owner');
+const recipe=(await call('nacre',null)).data.recipes[0];
+check((await call('family',{action:'recipe',recipeId:recipe.id},b.cookie)).status===200,'member adds recipe to shared cookbook');
+check((await call('family',null,a.cookie)).data.family.recipeIds.includes(recipe.id),'shared cookbook visible to owner');
+await call('nacre',{action:'note',recipeId:recipe.id,text:'Private note',cooked:true},b.cookie);
+check(!(await call('nacre',null,a.cookie)).data.notes.length,'notes remain private inside family');
+check((await call('family',{action:'create',name:'Another'},b.cookie)).status===409,'one family per account');
+r=await call('family',{action:'invite'},a.cookie);await call('family',{action:'revoke',inviteId:r.data.id},a.cookie);
+check((await call('family',{action:'join',code:r.data.code},c.cookie)).status===404,'revoked code rejected');
+r=await call('family',{action:'invite'},a.cookie);sql.prepare('UPDATE family_invites SET expires=0 WHERE id=?').run(r.data.id);
+check((await call('family',{action:'join',code:r.data.code},c.cookie)).status===404,'expired code rejected');
+const d=await register('dora','8');r=await call('family',{action:'invite'},a.cookie);
+const concurrent=await Promise.all([call('family',{action:'join',code:r.data.code},c.cookie,'9'),call('family',{action:'join',code:r.data.code},d.cookie,'10')]);
+check(concurrent.filter(r=>r.status===200).length===1,'invitation redeemed only once under concurrent requests');
+check((await call('family',{action:'leave'},a.cookie)).status===400,'owner must transfer responsibility before leaving');
+check((await call('family',{action:'transfer',userId:b.id},a.cookie)).status===200,'owner can transfer responsibility');
+check((await call('family',{action:'remove',userId:a.id},b.cookie)).status===200,'new owner can remove member');
+check((await call('family',null,a.cookie)).data.family===null,'removed member loses family access');
+check((await call('account',{action:'password',currentPassword:'wrong',password:pwd+'2'},b.cookie)).status===401,'password change requires current password');
+r=await call('account',{action:'password',currentPassword:pwd,password:pwd+'2'},b.cookie);check(r.status===200,'password can be changed');
+check((await call('account',null,b.cookie)).data.account===null,'password change revokes previous sessions');b.cookie=r.cookie.split(';')[0];
+r=await call('account',{action:'recover',username:'alice',recoveryCode:a.data.recoveryCode,password:pwd+'3'},'','11');check(r.status===200&&r.data.recoveryCode!==a.data.recoveryCode,'recovery rotates single-use code');
+check((await call('account',null,a.cookie)).data.account===null,'recovery revokes sessions');
+check((await call('account',{action:'recover',username:'alice',recoveryCode:a.data.recoveryCode,password:pwd+'4'},'','12')).status===401,'used recovery code rejected');
+const forgedHeaders=new Request('https://nacre.test/api/nacre',{headers:{'oai-authenticated-user-id':b.id,'oai-authenticated-user-email':'x@example.invalid'}});
+check((await routes.nacre.GET(forgedHeaders).then(r=>r.json())).user===null,'identity headers alone do not authenticate Nacre');
+check((await call('account',{action:'logout'},b.cookie)).status===200&&(await call('account',null,b.cookie)).data.account===null,'logout invalidates session');
+const expiredToken=c.cookie.split('=')[1];sql.prepare('UPDATE sessions SET expires=0 WHERE account_id=?').run(c.id);check((await call('account',null,c.cookie)).data.account===null,'expired sessions rejected');
+// Directly exercise the persisted bucket without spending seconds on repeated hashes.
+const session=await import(pathToFileURL(resolve(dir,'session.mjs')).href);const req=new Request('https://nacre.test',{headers:{'cf-connecting-ip':'limit-test'}});for(let i=0;i<3;i++)await session.throttle(req,'test',3,60000);let rejected=false;try{await session.throttle(req,'test',3,60000)}catch(e){rejected=e.status===429}check(rejected,'database rate limit enforced');
+sql.close();console.log(`${count} account and family checks passed.`);

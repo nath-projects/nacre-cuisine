@@ -1,0 +1,54 @@
+name: Publier Nacre sur GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Configuration de pnpm
+        run: corepack enable && corepack prepare pnpm@11.25.0 --activate
+
+      - name: Installation des dépendances
+        run: pnpm install
+
+      - name: Vérification des types et tests
+        run: pnpm run check && pnpm test
+
+      - name: Compilation du site statique
+        run: pnpm run build
+
+      - name: Configuration GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Téléversement de l'artefact GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Déploiement sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

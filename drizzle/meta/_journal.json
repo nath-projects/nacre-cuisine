@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793108960819,
+      "tag": "0000_illegal_tomas",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793191970290,
+      "tag": "0001_tiny_jane_foster",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793192141006,
+      "tag": "0002_sour_wendell_rand",
+      "breakpoints": true
+    }
+  ]
+}
