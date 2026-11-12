@@ -39,8 +39,12 @@ export function aiFailure(reason: string, detail = '', status = 502): AiFailure 
  */
 export async function generateRecipeWithAi(endpoint: string, prompt: string, timeoutMs = 90_000): Promise<AiResult> {
   if (!endpoint) throw aiFailure('not_configured', '', 503);
+  // Un vrai AbortError (délai dépassé) doit être distinguable d'une coupure réseau :
+  // sans ce drapeau, `controller.abort()` produit aussi une AbortError et le
+  // navigateur affichait « Vérifiez votre connexion » pour un simple délai.
+  let timedOut = false;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   let res: Response;
   const bare = endpoint.replace(/^https:\/\//, '').split('/')[0];
   try {
@@ -54,7 +58,7 @@ export async function generateRecipeWithAi(endpoint: string, prompt: string, tim
     // No-CORS on purpose: a bare "Failed to fetch" tells the user nothing, while
     // the browser's error names the host ("nacre-ai.example.workers.dev"), which
     // is what someone following the README needs in order to fix the endpoint.
-    const reason = e?.name === 'AbortError' ? 'timeout' : 'network';
+    const reason = timedOut || e?.name === 'TimeoutError' ? 'timeout' : 'network';
     const host = /https?:\/\/[\w.-]+/.exec(String(e?.message || ''))?.[0]?.replace(/^https?:\/\//, '');
     throw aiFailure(reason, host && host !== bare ? 'hôte ' + host : 'aucune réponse de ' + bare);
   } finally {
