@@ -1,0 +1,8 @@
+{
+  "aiEndpoint": "",
+  "model": "nvidia/nemotron-3.5-super-vl:free",
+  "models": [
+    "nvidia/nemotron-3.5-super-vl:free",
+    "dots-studio/dots-3-note-preview:free"
+  ]
+}
