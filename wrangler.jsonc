@@ -9,9 +9,6 @@
 	"vars": {
 		"AI_ALLOWED_ORIGINS": "https://nath-projects.github.io"
 	},
-	"limits": {
-		"cpu_ms": 1000
-	},
 	"observability": {
 		"enabled": true
 	},
