@@ -17,20 +17,28 @@
 
 import {recipeSchema, jsonSchema} from '@/lib/recipe';
 
-const env = (globalThis as any).env || {};
-const E = env as Record<string, any>;
-// Modèles OpenRouter gratuits, essayés dans l'ordre. Ils « réfléchissent » avant
-// de répondre : il faut ~8000 tokens et jusqu'à 60 s.
-const OPENROUTER_MODELS = (E.OPENROUTER_MODELS || 'nvidia/nemotron-3.5-super-vl:free,dots-studio/dots-3-note-preview:free')
-  .split(',').map((m: string) => m.trim()).filter(Boolean);
+// Les liaisons (DB, clés, vars) n'arrivent qu'en argument de fetch(), jamais au
+// niveau module : tout ce qui en dépend est calculé ici, à l'intérieur de la requête.
+// (Bug du 12/11/2026 : `env` figé au chargement du module restait vide, d'où des
+// « Origine non autorisée » même avec AI_ALLOWED_ORIGINS correctement déployé.)
+function readEnv(workerEnv: unknown): Record<string, any> {
+  return ((workerEnv as any) || (globalThis as any).env || {}) as Record<string, any>;
+}
 
-function allowedOrigins(): string[] {
+function openrouterModels(E: Record<string, any>): string[] {
+  // Modèles OpenRouter gratuits, essayés dans l'ordre. Ils « réfléchissent » avant
+  // de répondre : il faut ~8000 tokens et jusqu'à 60 s.
+  return (E.OPENROUTER_MODELS || 'nvidia/nemotron-3.5-super-vl:free,dots-studio/dots-3-note-preview:free')
+    .split(',').map((m: string) => m.trim()).filter(Boolean);
+}
+
+function allowedOrigins(E: Record<string, any>): string[] {
   return (E.AI_ALLOWED_ORIGINS || '').split(',').map((o: string) => o.trim().replace(/\/$/, '')).filter(Boolean);
 }
-function corsHeaders(req: Request): Record<string, string> {
+function corsHeaders(req: Request, E: Record<string, any>): Record<string, string> {
   const origin = req.headers.get('origin') || '';
   const headers: Record<string, string> = { 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Max-Age': '86400' };
-  if (origin && allowedOrigins().includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+  if (origin && allowedOrigins(E).includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
   return headers;
 }
 
@@ -51,10 +59,10 @@ class AiError extends Error {
   }
 }
 
-async function generateWithOpenRouter(prompt: string): Promise<AiResult> {
+async function generateWithOpenRouter(prompt: string, E: Record<string, any>): Promise<AiResult> {
   if (!E.OPENROUTER_API_KEY) throw new AiError('not_configured', 'Aucune clé OpenRouter sur le Worker.');
   let last: AiError | null = null;
-  for (const model of OPENROUTER_MODELS) {
+  for (const model of openrouterModels(E)) {
     let res: Response;
     try {
       res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -100,8 +108,9 @@ export default {
     // lib/session.ts et lib/*/route.ts lisent les mêmes liaisons (DB, clés, vars).
     (globalThis as any).env = workerEnv;
 
+    const E = readEnv(workerEnv);
     const url = new URL(request.url);
-    const cors = corsHeaders(request);
+    const cors = corsHeaders(request, E);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     // L'IA de Nacre : POST /api/nacre { action: 'generate', prompt }
@@ -114,11 +123,11 @@ export default {
       if (prompt.length < 8) return Response.json({ error: 'Décrivez un peu plus votre envie.', reason: 'invalid' }, { status: 400, headers: cors });
       const origin = request.headers.get('origin');
       const sameOrigin = !origin || origin === url.origin;
-      if (!sameOrigin && !allowedOrigins().includes(origin)) {
+      if (!sameOrigin && !allowedOrigins(E).includes(origin)) {
         return Response.json({ error: 'Origine non autorisée.', reason: 'forbidden' }, { status: 403, headers: cors });
       }
       try {
-        const result = await generateWithOpenRouter(prompt);
+        const result = await generateWithOpenRouter(prompt, E);
         return Response.json(result, { headers: { 'Cache-Control': 'no-store', ...cors } });
       } catch (e) {
         const err = e as AiError;
