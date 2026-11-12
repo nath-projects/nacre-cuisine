@@ -23,6 +23,7 @@
 			"migrations_dir": "drizzle"
 		},
 		{
+			// Même base, second nom : les commandes `npx wrangler d1 ...` utilisées par le propriétaire se rattachent à la liaison marquée remote.
 			"binding": "nacre_db",
 			"database_name": "nacre-db",
 			"database_id": "e4d3ad7e-cc10-4a32-8c6a-1faf5c1afc86",
