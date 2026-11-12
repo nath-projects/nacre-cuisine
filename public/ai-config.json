@@ -1,5 +1,5 @@
 {
-  "aiEndpoint": "",
+  "aiEndpoint": "https://nacre-cuisine.nath-projects.workers.dev/api/nacre",
   "model": "nvidia/nemotron-3.5-super-vl:free",
   "models": [
     "nvidia/nemotron-3.5-super-vl:free",
