@@ -1,23 +1,32 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nacre-cuisine",
-  "main": "worker/index.ts",
-  "compatibility_date": "2026-05-15",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "limits": {
-    "cpu_ms": 1000
-  },
-  "observability": {
-    "enabled": true
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "nacre-db",
-      "database_id": "00000000-0000-4000-8000-000000000000",
-      "migrations_dir": "drizzle"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "nacre-cuisine",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-05-15",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"vars": {
+		"AI_ALLOWED_ORIGINS": "https://nath-projects.github.io"
+	},
+	"limits": {
+		"cpu_ms": 1000
+	},
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "nacre-db",
+			"database_id": "e4d3ad7e-cc10-4a32-8c6a-1faf5c1afc86",
+			"migrations_dir": "drizzle"
+		},
+		{
+			"binding": "nacre_db",
+			"database_name": "nacre-db",
+			"database_id": "e4d3ad7e-cc10-4a32-8c6a-1faf5c1afc86",
+			"remote": true
+		}
+	]
 }
