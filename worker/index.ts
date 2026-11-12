@@ -96,8 +96,8 @@ const { GET: familyGet, POST: familyPost } = await import('@/app/api/family/rout
 
 export default {
   async fetch(request: Request, workerEnv: any): Promise<Response> {
-    // En Worker, `env` arrive ici et pas au niveau module : on complète.
-    this.env = workerEnv;
+    // En Worker, `env` arrive ici et pas au niveau module : on complète, pour que
+    // lib/session.ts et lib/*/route.ts lisent les mêmes liaisons (DB, clés, vars).
     (globalThis as any).env = workerEnv;
 
     const url = new URL(request.url);
