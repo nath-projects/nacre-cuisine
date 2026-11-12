@@ -37,7 +37,7 @@ export function aiFailure(reason: string, detail = '', status = 502): AiFailure 
  * Calls the AI Worker and returns a validated recipe, or throws an AiFailure.
  * `endpoint` comes from ai-config.json; an empty endpoint means "no AI here".
  */
-export async function generateRecipeWithAi(endpoint: string, prompt: string, timeoutMs = 90_000): Promise<AiResult> {
+export async function generateRecipeWithAi(endpoint: string, prompt: string, timeoutMs = 150_000): Promise<AiResult> {
   if (!endpoint) throw aiFailure('not_configured', '', 503);
   // Un vrai AbortError (délai dépassé) doit être distinguable d'une coupure réseau :
   // sans ce drapeau, `controller.abort()` produit aussi une AbortError et le
