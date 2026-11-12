@@ -1,5 +1,7 @@
 import { recipeSchema, type Recipe, type Book } from './recipe.ts';
 import { seeds } from './seeds.ts';
+import { loadAiConfig, type AiConfig } from './ai-config.ts';
+import { generateRecipeWithAi, aiFailure } from './ai-client.ts';
 
 // Local storage keys
 const K_ACCOUNTS = 'nacre_local_accounts';
@@ -64,6 +66,41 @@ function getJSON<T>(key: string, fallback: T): T {
 
 function setJSON(key: string, val: unknown): void {
   setItem(key, JSON.stringify(val));
+}
+
+// Daily recipe-generation limit per account (same rule as the server API).
+const AI_DAILY_LIMIT = 20;
+
+// Snapshot of the AI wiring, read once when the app loads. Without a Worker
+// endpoint the static site has no AI: the UI then says so instead of faking it.
+let aiConfig: AiConfig | null = null;
+let aiConfigPromise: Promise<AiConfig> | null = null;
+function aiConfigOnce(): Promise<AiConfig> {
+  if (!aiConfigPromise) {
+    aiConfigPromise = loadAiConfig().then(config => {
+      aiConfig = config;
+      return config;
+    });
+  }
+  return aiConfigPromise;
+}
+function providerStatus() {
+  return {
+    openrouter: !!(aiConfig && aiConfig.aiEndpoint),
+    endpoint: aiConfig?.aiEndpoint || '',
+    model: aiConfig?.model || '',
+  };
+}
+
+function aiQuotaKey(accountId: string): string {
+  return `nacre_ai_usage:${accountId}:${new Date().toISOString().slice(0, 10)}`;
+}
+function aiQuotaCount(accountId: string): number {
+  const value = Number(getItem(aiQuotaKey(accountId)) || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+function aiQuotaBump(accountId: string): void {
+  setItem(aiQuotaKey(accountId), String(aiQuotaCount(accountId) + 1));
 }
 
 // Cryptographic helpers using standard Web Crypto API (supported in all modern browsers & Node 20+)
@@ -155,6 +192,7 @@ function requireCurrentAccount(): { id: string; username: string } {
 
 // Route handlers
 export async function handleLocalApiRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (!aiConfig) await aiConfigOnce();
   const urlStr = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
   const url = new URL(urlStr, 'http://localhost');
   const pathname = url.pathname;
@@ -192,6 +230,10 @@ export async function handleLocalApiRequest(input: RequestInfo | URL, init?: Req
 
   const errorRes = (e: any) => {
     const status = e.status || 500;
+    // AI failures already carry a user-facing message and a machine reason.
+    if (e && typeof e.reason === 'string') {
+      return jsonRes({ error: e.message, reason: e.reason }, status);
+    }
     return jsonRes({ error: e.message || 'Une erreur est survenue.' }, status);
   };
 
@@ -386,7 +428,7 @@ export async function handleLocalApiRequest(input: RequestInfo | URL, init?: Req
             name: userProfile?.name || user.username,
             color: userProfile?.color || '#65745f'
           } : null,
-          providers: { google: true, groq: true }
+          providers: providerStatus()
         });
       }
 
@@ -545,34 +587,19 @@ export async function handleLocalApiRequest(input: RequestInfo | URL, init?: Req
           }
 
           if (action === 'generate') {
-            const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
-            if (prompt.length < 5) throw Object.assign(new Error('Décrivez un peu plus votre envie.'), { status: 400 });
+            const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 2500) : '';
+            if (prompt.length < 8) throw Object.assign(new Error('Décrivez un peu plus votre envie.'), { status: 400 });
+            if (!profile.name) {
+              throw Object.assign(new Error('Choisissez d’abord votre pseudo dans votre profil.'), { status: 400 });
+            }
 
-            // Creative recipe generator fallback
-            source = 'ai:local';
-            data = {
-              title: prompt.slice(0, 50).replace(/[.?!\n].*$/, '') || 'Nouvelle création culinaire',
-              description: `Une recette inspirée de votre envie : ${prompt.slice(0, 150)}.`,
-              category: 'Plat',
-              servings: 2,
-              prep: 15,
-              cook: 20,
-              rest: 0,
-              difficulty: 'Facile',
-              ingredients: [
-                { name: 'Ingrédient principal selon votre choix', quantity: 200, unit: 'g' },
-                { name: 'Huile d’olive', quantity: 2, unit: 'c. à soupe' },
-                { name: 'Sel et poivre', quantity: 0, unit: 'au goût' }
-              ],
-              equipment: ['Poêle', 'Couteau de chef'],
-              steps: [
-                { title: 'Mise en place', text: 'Préparez tous vos ingrédients et découpez-les soigneusement.', minutes: 5 },
-                { title: 'Cuisson', text: 'Chauffez la poêle à feu moyen et faites dorer doucement les ingrédients.', minutes: 15 },
-                { title: 'Finition', text: 'Ajustez l’assaisonnement, dressez sur une belle assiette et dégustez chaud.', minutes: 0 }
-              ],
-              tips: 'N’hésitez pas à ajuster les herbes fraîches et épices selon vos préférences.',
-              tags: ['Création']
-            };
+            const config = aiConfig || (await aiConfigOnce());
+            if (!config.aiEndpoint) throw aiFailure('not_configured', 'ai-config.json sans aiEndpoint', 503);
+            if (aiQuotaCount(user.id) >= AI_DAILY_LIMIT) throw aiFailure('quota', 'limite quotidienne', 429);
+
+            const generated = await generateRecipeWithAi(config.aiEndpoint, prompt);
+            data = generated.recipe;
+            source = 'ai:' + generated.provider;
           }
 
           const parsed = recipeSchema.safeParse(data);
@@ -600,7 +627,8 @@ export async function handleLocalApiRequest(input: RequestInfo | URL, init?: Req
             recipes.unshift(record);
           }
           setJSON(K_RECIPES, recipes);
-          return jsonRes({ id });
+          if (action === 'generate') aiQuotaBump(user.id);
+          return jsonRes({ id, provider: source.replace(/^ai:/, '') });
         }
 
         throw Object.assign(new Error('Action inconnue.'), { status: 400 });

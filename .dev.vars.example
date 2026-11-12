@@ -1,5 +1,14 @@
 # Server-only local secrets. Never commit .dev.vars
+# AI providers, tried in this order (see app/api/nacre/route.ts).
+# OPENROUTER_API_KEY: https://openrouter.ai/keys — free models, no card needed.
+# Models are tried in order; free ones answer after a reasoning phase, so keep
+# them and let the Worker handle the retries.
+OPENROUTER_API_KEY=
+OPENROUTER_MODELS=nvidia/nemotron-3.5-super-vl:free,dots-studio/dots-3-note-preview:free
 GEMINI_API_KEY=
 GROQ_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash
 GROQ_MODEL=openai/gpt-oss-120b
+# Origins of the static site allowed to call this Worker (comma separated).
+# Example: https://nath-projects.github.io
+AI_ALLOWED_ORIGINS=
