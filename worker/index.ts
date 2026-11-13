@@ -42,7 +42,7 @@ function corsHeaders(req: Request, E: Record<string, any>): Record<string, strin
   return headers;
 }
 
-const INSTRUCTIONS = 'Tu es un assistant culinaire. Réponds uniquement avec une recette en français au format JSON suivant le schéma fourni. '
+const INSTRUCTIONS = 'Tu es un assistant culinaire. La catégorie doit décrire le plat demandé (une courgette poêlée est un Plat, pas un Dessert) : Plat pour un plat principal, Entrée, Dessert, Petit déjeuner. Réponds uniquement avec une recette en français au format JSON suivant le schéma fourni. '
   + 'Respecte ingrédients exclus, portions, matériel et durée demandés. Quantités numériques, unités séparées. Chaque ingrédient doit être utilisé dans les étapes. '
   + 'Étapes précises, temps et températures réalistes. minutes est un minuteur facultatif (0 sinon). Sois concis : description ≤ 300 caractères, chaque étape ≤ 400 caractères, '
   + 'au plus 8 ingrédients et 8 étapes. Aucun champ vide. Ne prétends jamais garantir absence d’allergènes, sécurité médicale ou recette testée. '
