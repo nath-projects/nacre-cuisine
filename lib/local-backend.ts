@@ -877,7 +877,15 @@ if (typeof window !== 'undefined' && !(window as any).__nacreBackendInstalled) {
 
   window.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const urlStr = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
-    if (urlStr.includes('/api/account') || urlStr.includes('/api/nacre') || urlStr.includes('/api/family')) {
+    // Only this site's own relative calls belong to the in-browser backend.
+    // An absolute URL is somebody else's server — notably our AI Worker, whose
+    // address ends in /api/nacre. Intercepting it sent the generation request to
+    // the local backend, which then never reached the Worker from the page.
+    const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(urlStr) || urlStr.startsWith('//');
+    const isLocalApi = !isAbsolute
+      && (urlStr.startsWith('/api/') || urlStr.startsWith('./api/'))
+      && (urlStr.includes('/api/account') || urlStr.includes('/api/nacre') || urlStr.includes('/api/family'));
+    if (isLocalApi) {
       return handleLocalApiRequest(input, init);
     }
     return originalFetch(input, init);
