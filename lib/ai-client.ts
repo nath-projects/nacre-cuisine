@@ -27,6 +27,7 @@ const MESSAGES: Record<string, string> = {
   incomplete: 'La recette reçue était incomplète, elle n’a pas été publiée. Réessayez avec une demande plus simple.',
   provider: 'L’assistant IA est momentanément indisponible. Aucun brouillon n’a été publié.',
   network: 'Impossible de joindre l’assistant IA. Vérifiez votre connexion puis réessayez.',
+  unreadable: 'La réponse de l’assistant est arrivée abîmée. Réessayez, ou écrivez la recette vous-même.',
 };
 
 export function aiFailure(reason: string, detail = '', status = 502): AiFailure {
@@ -65,6 +66,11 @@ export async function generateRecipeWithAi(endpoint: string, prompt: string, tim
     clearTimeout(timer);
   }
 
+  // Un Worker qui ne peut pas lire sa réponse la remplace par ce marqueur : c'est
+  // un problème de transport, pas un problème d'IA, et le message doit le dire.
+  if (res.headers.get('x-nacre-unreadable') === '1') {
+    throw aiFailure('unreadable', 'Le serveur n’a pas pu lire sa propre réponse.');
+  }
   let payload: any = null;
   try {
     payload = await res.json();
