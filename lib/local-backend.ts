@@ -882,9 +882,13 @@ if (typeof window !== 'undefined' && !(window as any).__nacreBackendInstalled) {
     // address ends in /api/nacre. Intercepting it sent the generation request to
     // the local backend, which then never reached the Worker from the page.
     const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(urlStr) || urlStr.startsWith('//');
+    // Account operations (register, login, logout, profile, password, recovery, session)
+    // MUST go to the Worker so they are persisted in D1 and shared across devices.
+    // Only /api/nacre (recipes/books/notes) and /api/family stay local for now.
     const isLocalApi = !isAbsolute
       && (urlStr.startsWith('/api/') || urlStr.startsWith('./api/'))
-      && (urlStr.includes('/api/account') || urlStr.includes('/api/nacre') || urlStr.includes('/api/family'));
+      && (urlStr.includes('/api/nacre') || urlStr.includes('/api/family'))
+      && !urlStr.includes('/api/account');
     if (isLocalApi) {
       return handleLocalApiRequest(input, init);
     }
